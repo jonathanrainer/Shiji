@@ -1,0 +1,17 @@
+.section .reset
+J _boot
+
+.section .illegal_instruction
+_illegal_instruction:
+J _trap
+
+.section .boot
+_boot:
+li sp, 0x5DC0
+call {{ program_start }}
+J _trap
+
+.section .trap
+_trap:
+J _trap
+

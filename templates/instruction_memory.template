@@ -1,0 +1,92 @@
+module instruction_memory
+  #(
+    parameter ADDR_WIDTH = 32,
+    parameter DATA_WIDTH = 32,
+    parameter NUM_WORDS  = 32000
+  )(
+    // Clock and Reset
+    input  logic                    clk,
+    
+    input  logic                    req_i,
+    input  logic [ADDR_WIDTH-1:0]   addr_i,
+    
+    output logic                    gnt_o,
+    output logic                    rvalid_o,
+    output logic [DATA_WIDTH-1:0]   rdata_o
+  );
+
+  localparam words = NUM_WORDS/(DATA_WIDTH/8);
+
+  logic [DATA_WIDTH/8-1:0][7:0] mem[words];
+  logic [ADDR_WIDTH-1-$clog2(DATA_WIDTH/8):0] addr;
+  
+  enum logic [1:0] {
+    SLEEP = 2'b00,
+    WAITG = 2'b01,
+    GRANT = 2'b10,
+    WAITR = 2'b11
+    } State, Next;
+    
+    int delay_counter = 0;
+    int delay_limit = 1;
+
+  initial
+    begin
+        mem     = '{default:32'h0};
+        {% for start_section, statements in program_elements %}
+            {% for statement in statements %}
+        mem[{{ start_section + loop.index0 }}] = 32'h{{ statement }};
+            {%  endfor %}
+        {% endfor %}
+        gnt_o = 1'b0;
+        rvalid_o = 1'b0;
+        rdata_o = 32'bx;
+        State = SLEEP;
+        Next = SLEEP;
+    end
+
+  always @(posedge clk)
+  begin
+    State = Next;
+    unique case(State)
+        SLEEP: 
+        begin
+            rvalid_o = 0;
+            if (req_i == 1)
+            begin
+                Next = WAITG;
+            end    
+        end
+        WAITG:
+        begin
+            if (delay_counter < delay_limit) delay_counter++;
+            else 
+            begin
+                delay_counter = 0;
+                Next = GRANT;
+                gnt_o = 1;
+                addr = addr_i[ADDR_WIDTH-1:$clog2(DATA_WIDTH/8)];
+            end
+         end
+         GRANT: 
+         begin
+            gnt_o = 0;
+            Next = WAITR;
+         end
+         WAITR:
+         begin
+            if (delay_counter < delay_limit) delay_counter++;
+            else 
+            begin
+                delay_counter = 0;
+                Next = SLEEP;
+                rvalid_o = 1;
+                rdata_o = mem[addr];
+            end
+         end
+      endcase 
+  end
+  
+  
+  
+endmodule

@@ -1,0 +1,41 @@
+OUTPUT_ARCH(riscv)
+
+ENTRY(main)
+
+MEMORY
+{
+    instruction     (rx)   : ORIGIN = {{ program_start }}, LENGTH = 32K
+    data            (rw!x) : ORIGIN = {{ data_start }}, LENGTH = 32K
+    stack           (rw!x) : ORIGIN = {{ data_start }} + 64K, LENGTH = 32K
+}
+
+SECTIONS
+{
+	. = 0x80;
+    	.reset : { *(.reset) }
+    . = 0x84;
+        .illegal_instruction : { *(.illegal_instruction) }
+	. = {{ program_start }};
+	.text :
+	{
+		*(start_point)
+		*(.text)
+        *(.boot)
+        *(.trap)
+	}>instruction
+	.= {{ data_start }};
+    .rodata : { *(.rodata) }>data
+	.data : { *(.data) }>data
+	.bss : {
+        *(.bss)
+        . = ALIGN(. != 0 ? 32 / 8 : 1);
+    }>data
+    . = ALIGN(32 / 8);
+    . = SEGMENT_START("ldata-segment", .);
+    . = ALIGN(32 / 8);
+    _end = .; PROVIDE (end = .);
+    .stack :{
+        *(.stack)
+    }>stack
+	/DISCARD/ : { *(*debug*) }
+}
