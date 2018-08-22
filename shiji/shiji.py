@@ -9,8 +9,9 @@ from elftools.elf.elffile import ELFFile
 
 class Shiji(object):
 
-    def __init__(self, template_path, riscv_binary_prefix, program_start, data_start):
-        self.config = Configuration(program_start, data_start)
+    def __init__(self, template_path, log_path, output_path, temporary_path, riscv_binary_prefix,
+                 program_start, data_start):
+        self.config = Configuration(program_start, data_start, log_path, output_path, temporary_path)
         self.utilities = Utilities()
         self.os_interface = OperatingSystemInterface(template_path, riscv_binary_prefix)
         self.template_interface = TemplateInterface()
@@ -19,9 +20,10 @@ class Shiji(object):
         self.os_interface.create_temp_folders()
         # Set up the linker file and boot script
         executable_file = self.os_interface.compile_benchmark(
-            Path("benchmarks", benchmark).absolute(),
-            Path("temp", "temp.o").absolute(),
+            benchmark.absolute(),
+            Path(self.config.temporary_path, "temp.o"),
             self.template_interface.create_link_and_boot_file(self.os_interface.template_base_path,
+                                                              self.config.temporary_path,
                                                               self.utilities.hex_format(self.config.program_start),
                                                               self.utilities.hex_format(self.config.data_start))
         )
@@ -30,17 +32,17 @@ class Shiji(object):
         # Format them into templates
         self.template_interface.create_and_render_memory_template(
             str(self.os_interface.template_base_path / 'instruction_memory.template'),
-            Path("output", "instruction_memory_mock_{0}.sv".format(benchmark.split(".")[0])),
+            Path(self.config.output_path, "instruction_memory_mock_{0}.sv".format(benchmark.name.split(".")[0])),
             output_file_elements[0],
             self.config.data_start
         )
         self.template_interface.create_and_render_memory_template(
             str(self.os_interface.template_base_path / 'data_memory.template'),
-            Path("output", "data_memory_mock_{0}.sv".format(benchmark.split(".")[0])),
+            Path(self.config.output_path, "data_memory_mock_{0}.sv".format(benchmark.name.split(".")[0])),
             output_file_elements[1],
             self.config.data_start
         )
-        self.os_interface.log_decompiled_file(executable_file.absolute(), (benchmark.split(".")[0]))
+        self.os_interface.log_decompiled_file(executable_file.absolute(), (benchmark.name.split(".")[0]))
         self.os_interface.clear_up_temporary_files()
         return output_file_elements
 
@@ -54,10 +56,12 @@ class Utilities(object):
 
 class Configuration(object):
 
-    def __init__(self, program_start, data_start, benchmark_path, log_path, ):
+    def __init__(self, program_start, data_start, log_path, output_path, temporary_path):
         self.program_start = program_start
         self.data_start = data_start
-        self.benchmark_path = benchmark_path
+        self.log_path = log_path
+        self.output_path = output_path
+        self.temporary_path = temporary_path
 
 
 class TemplateInterface(object):
@@ -78,15 +82,15 @@ class TemplateInterface(object):
             ))
 
     @staticmethod
-    def create_link_and_boot_file(template_base_path, program_start, data_start):
+    def create_link_and_boot_file(template_base_path, temporary_path, program_start, data_start):
         with open(str(template_base_path / 'boot.template')) as boot_file:
             template = Template(boot_file.read())
-        boot_file_output_path = Path("temp", "boot.S")
+        boot_file_output_path = Path(temporary_path, "boot.S")
         with open(str(boot_file_output_path), "w") as output_boot_file:
             output_boot_file.write(template.render(program_start=program_start))
         with open(str(template_base_path / 'link.template')) as linker_file:
             template = Template(linker_file.read())
-        linker_file_output_path = Path("temp", "link.ld")
+        linker_file_output_path = Path(temporary_path, "link.ld")
         with open(str(linker_file_output_path), "w") as output_linker_file:
             output_linker_file.write(template.render(
                 program_start=program_start,
@@ -167,6 +171,6 @@ class OperatingSystemInterface(object):
 
 if __name__ == "__main__":
     system = Shiji(
-        Path("templates"), Path("benchmarks"), Path("logs"), Path("output"), "/opt/riscv/bin/", 256, 65536
+        Path("templates"), Path("logs"), Path("output"), Path("temp"), "/opt/riscv/bin/", 256, 65536
     )
-    system.run("fdct.c")
+    system.run(Path("benchmarks", "fdct.c"))
