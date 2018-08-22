@@ -1,0 +1,1 @@
+name="shiji_mem_contents"

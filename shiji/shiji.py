@@ -42,6 +42,7 @@ class Shiji(object):
         )
         self.os_interface.log_decompiled_file(executable_file.absolute(), (benchmark.split(".")[0]))
         self.os_interface.clear_up_temporary_files()
+        return output_file_elements
 
 
 class Utilities(object):
@@ -53,9 +54,10 @@ class Utilities(object):
 
 class Configuration(object):
 
-    def __init__(self, program_start, data_start):
+    def __init__(self, program_start, data_start, benchmark_path, log_path, ):
         self.program_start = program_start
         self.data_start = data_start
+        self.benchmark_path = benchmark_path
 
 
 class TemplateInterface(object):
@@ -165,6 +167,6 @@ class OperatingSystemInterface(object):
 
 if __name__ == "__main__":
     system = Shiji(
-        Path("templates"), "/opt/riscv/bin/", 256, 65536
+        Path("templates"), Path("benchmarks"), Path("logs"), Path("output"), "/opt/riscv/bin/", 256, 65536
     )
     system.run("fdct.c")
