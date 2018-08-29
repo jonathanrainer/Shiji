@@ -4,9 +4,9 @@ ENTRY(main)
 
 MEMORY
 {
-    instruction     (rx)   : ORIGIN = {{ program_start }}, LENGTH = 32K
-    data            (rw!x) : ORIGIN = {{ data_start }}, LENGTH = 32K
-    stack           (rw!x) : ORIGIN = {{ data_start }} + 64K, LENGTH = 32K
+    instruction     (rx)   : ORIGIN = {{ program_start }}, LENGTH = {{ instruction_mem_size }}
+    data            (rw!x) : ORIGIN = {{ data_start }}, LENGTH = {{ data_mem_size }}
+    stack           (rw!x) : ORIGIN = {{ data_start }} + {{ data_mem_size + stack_size }}, LENGTH = {{ stack_size }}
 }
 
 SECTIONS

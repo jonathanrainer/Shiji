@@ -7,7 +7,7 @@ J _trap
 
 .section .boot
 _boot:
-li sp, 0x5DC0
+li sp, {{ stack_pointer_loc }}
 call {{ program_start }}
 J _trap
 

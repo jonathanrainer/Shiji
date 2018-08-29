@@ -10,14 +10,15 @@ from elftools.elf.elffile import ELFFile
 class Shiji(object):
 
     def __init__(self, template_path, log_path, output_path, temporary_path, riscv_binary_prefix,
-                 program_start, data_start):
-        self.config = Configuration(program_start, data_start, log_path, output_path, temporary_path)
+                 program_start, data_start, instruction_mem_size, data_mem_size, stack_size):
+        self.config = Configuration(program_start, data_start, log_path, output_path, temporary_path,
+                                    instruction_mem_size, data_mem_size, stack_size)
         self.utilities = Utilities()
         self.os_interface = OperatingSystemInterface(template_path, riscv_binary_prefix)
         self.template_interface = TemplateInterface()
 
-    def run(self, benchmark):
-        self.os_interface.create_temp_folders()
+    def run(self, benchmark, keep_temporary_files):
+        self.os_interface.create_temp_folders(self.config.temporary_path)
         # Set up the linker file and boot script
         executable_file = self.os_interface.compile_benchmark(
             benchmark.absolute(),
@@ -25,26 +26,34 @@ class Shiji(object):
             self.template_interface.create_link_and_boot_file(self.os_interface.template_base_path,
                                                               self.config.temporary_path,
                                                               self.utilities.hex_format(self.config.program_start),
-                                                              self.utilities.hex_format(self.config.data_start))
+                                                              self.utilities.hex_format(self.config.data_start),
+                                                              self.config.instruction_mem_size,
+                                                              self.config.data_mem_size,
+                                                              self.config.stack_size)
         )
         # Extract the hex commands from the dumped file
         output_file_elements = self.os_interface.create_output_file_elements(executable_file)
         # Format them into templates
-        self.template_interface.create_and_render_memory_template(
+        instruction_memory_contents = self.template_interface.create_and_render_memory_template(
             str(self.os_interface.template_base_path / 'instruction_memory.template'),
             Path(self.config.output_path, "instruction_memory_mock_{0}.sv".format(benchmark.name.split(".")[0])),
             output_file_elements[0],
-            self.config.data_start
+            self.config.program_start,
+            self.config.instruction_mem_size,
+            self.utilities.hex_format(4*(len(output_file_elements[0][-1][1]) + output_file_elements[0][-1][0] - 1))[2:],
+
         )
-        self.template_interface.create_and_render_memory_template(
+        data_memory_contents = self.template_interface.create_and_render_memory_template(
             str(self.os_interface.template_base_path / 'data_memory.template'),
             Path(self.config.output_path, "data_memory_mock_{0}.sv".format(benchmark.name.split(".")[0])),
             output_file_elements[1],
-            self.config.data_start
+            self.config.data_start,
+            self.config.data_mem_size+self.config.stack_size
         )
         self.os_interface.log_decompiled_file(executable_file.absolute(), (benchmark.name.split(".")[0]))
-        self.os_interface.clear_up_temporary_files()
-        return output_file_elements
+        if not keep_temporary_files:
+            self.os_interface.clear_up_temporary_files(self.config.temporary_path)
+        return instruction_memory_contents, data_memory_contents
 
 
 class Utilities(object):
@@ -56,18 +65,25 @@ class Utilities(object):
 
 class Configuration(object):
 
-    def __init__(self, program_start, data_start, log_path, output_path, temporary_path):
+    def __init__(self, program_start, data_start, log_path, output_path, temporary_path, instruction_mem_size,
+                 data_mem_size, stack_size):
         self.program_start = program_start
         self.data_start = data_start
         self.log_path = log_path
         self.output_path = output_path
         self.temporary_path = temporary_path
+        self.instruction_mem_size = instruction_mem_size
+        self.data_mem_size = data_mem_size
+        self.stack_size = stack_size
 
 
 class TemplateInterface(object):
 
     @staticmethod
-    def create_and_render_memory_template(template_path, output_path, program_elements, data_start):
+    def create_and_render_memory_template(template_path, output_path, program_elements, data_start, mem_size,
+                                          trap_address=None):
+        if (max([int(x[0] + len(x[1]) - data_start // 4) for x in program_elements] + [1]) * 4) > mem_size:
+            raise Exception("Memory Size Exceeded")
         num_words = 2 ** clog2(
             max([int(x[0] + len(x[1]) - data_start // 4) for x in program_elements] + [1]) * 4
         )
@@ -80,21 +96,32 @@ class TemplateInterface(object):
                 num_words=num_words,
                 array_offset=array_offset
             ))
+        if trap_address:
+            return output_path, num_words, trap_address
+        else:
+            return output_path, num_words
 
     @staticmethod
-    def create_link_and_boot_file(template_base_path, temporary_path, program_start, data_start):
+    def create_link_and_boot_file(template_base_path, temporary_path, program_start, data_start, instruction_mem_size,
+                                  data_mem_size, stack_size):
         with open(str(template_base_path / 'boot.template')) as boot_file:
             template = Template(boot_file.read())
         boot_file_output_path = Path(temporary_path, "boot.S")
         with open(str(boot_file_output_path), "w") as output_boot_file:
-            output_boot_file.write(template.render(program_start=program_start))
+            output_boot_file.write(template.render(
+                program_start=program_start,
+                stack_pointer_loc = hex(int(data_mem_size+stack_size)-4)
+            ))
         with open(str(template_base_path / 'link.template')) as linker_file:
             template = Template(linker_file.read())
         linker_file_output_path = Path(temporary_path, "link.ld")
         with open(str(linker_file_output_path), "w") as output_linker_file:
             output_linker_file.write(template.render(
                 program_start=program_start,
-                data_start=data_start
+                data_start=data_start,
+                instruction_mem_size = instruction_mem_size,
+                data_mem_size = data_mem_size,
+                stack_size = stack_size
                                      ))
         return [str(boot_file_output_path), str(linker_file_output_path)]
 
@@ -128,8 +155,8 @@ class OperatingSystemInterface(object):
         self.elf_file_interface = ELFFileInterface()
 
     @staticmethod
-    def create_temp_folders():
-        os.makedirs("temp", exist_ok=True)
+    def create_temp_folders(temp_path):
+        os.makedirs(str(temp_path.absolute()), exist_ok=True)
 
     def create_output_file_elements(self, output_file):
         with open(str(output_file.absolute()), 'rb') as elf_fp:
@@ -165,12 +192,14 @@ class OperatingSystemInterface(object):
         )
 
     @staticmethod
-    def clear_up_temporary_files():
-        shutil.rmtree(str(Path("temp")))
+    def clear_up_temporary_files(temp_path):
+        shutil.rmtree(str(temp_path))
 
 
 if __name__ == "__main__":
+    temp_folder = Path("temp")
     system = Shiji(
-        Path("templates"), Path("logs"), Path("output"), Path("temp"), "/opt/riscv/bin/", 256, 65536
+        Path("templates"), Path("logs"), Path("output"), temp_folder , "/opt/riscv/bin/", 256, 65536, 32768, 32768,
+        32768
     )
-    system.run(Path("benchmarks", "fdct.c"))
+    system.run(Path("benchmarks", "fdct.c"), True)
