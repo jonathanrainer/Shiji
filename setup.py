@@ -10,7 +10,7 @@ setup(
     author_email='jonathan.rainer@york.ac.uk',
     description='A file to generate memory contents for given benchmark files.',
     install_requires=[
-        "Jinja2==2.10",
+        "Jinja2==2.10.1",
         "MarkupSafe==1.0",
         "pyeda==0.28.0",
         "pyelftools==0.24",
